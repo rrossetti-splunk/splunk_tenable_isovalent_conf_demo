@@ -1,0 +1,178 @@
+<dashboard version="1.1" theme="light">
+  <label>Isovalent + Tenable Demo</label>
+  <description>Narrative demo: correlate Tenable Cloud Security posture findings with Isovalent runtime telemetry by cluster and workload. Example story — alex-aws-cluster has vulnerable coredns, kube-proxy, and aws-network-policy-agent images with matching process execution and security alerts.</description>
+
+  <fieldset submitButton="false" autoRun="true">
+    <input type="time" token="time">
+      <label>Time Range</label>
+      <default>
+        <earliest>0</earliest>
+        <latest>now</latest>
+      </default>
+    </input>
+    <input type="dropdown" token="cluster" searchWhenChanged="true">
+      <label>Cluster</label>
+      <choice value="*">All clusters</choice>
+      <search>
+        <query>index=cisco_security_cloud sourcetype=cisco:isovalent:* source=demo-tenable-correlation | eval cluster=coalesce(cluster, 'cluster-name') | stats count by cluster | append [ search index=tenable (source=Ermetic OR source=demo-tenable-correlation) type=Finding status=Open | rex field=resources{} "cluster/(?&lt;cluster&gt;[^/\"]+)" | rex field=resources{} ":cluster/(?&lt;cluster&gt;[^/\"]+)" | rex field=resourceNames{} "^(?&lt;cluster&gt;[^|]+)" | rex field=description "(?i)EKS Cluster (?&lt;cluster&gt;[a-z0-9][a-z0-9-]*)" | rex field=description "^(?&lt;cluster&gt;[a-z0-9][a-z0-9-]*)" | where isnotnull(cluster) | stats count by cluster ] | stats sum(count) as events by cluster | where events&gt;0 | sort cluster | fields cluster</query>
+        <earliest>-5y</earliest>
+        <latest>now</latest>
+      </search>
+      <fieldForLabel>cluster</fieldForLabel>
+      <fieldForValue>cluster</fieldForValue>
+      <default>*</default>
+    </input>
+  </fieldset>
+
+  <row>
+    <panel>
+      <html>
+        <div style="padding:14px 18px;background:#f7f9fb;border-left:4px solid #006d5b;border-radius:4px;font-family:Arial,sans-serif;">
+          <h2 style="margin:0 0 8px;color:#1a1a1a;">Posture + Runtime Correlation</h2>
+          <p style="margin:0 0 10px;color:#333;line-height:1.5;">
+            <b>Tenable Cloud Security</b> identifies vulnerable container images and misconfigurations.
+            <b>Isovalent</b> observes what is actually running — process execution, network connections, and security alerts.
+            Select a cluster to walk through the correlation.
+          </p>
+          <p style="margin:0;color:#555;font-size:13px;">
+            <b>Demo tip:</b> try <code>alex-aws-cluster</code> — Tenable reports vulnerable <code>coredns</code> (3 Critical CVEs) and <code>kube-proxy</code> images; Isovalent shows active processes and a <i>Suspicious Download and Execute</i> alert on the same workloads. The image-match pie chart includes <code>no match</code> slices for workloads where runtime drifted (e.g. <code>aws-network-policy-agent</code> repo path change, or <code>eks-pod-identity-agent</code> pulled from Public ECR).
+          </p>
+        </div>
+      </html>
+    </panel>
+  </row>
+
+  <row>
+    <panel>
+      <title>① Open Posture Findings</title>
+      <single>
+        <search>
+          <query>index=tenable (source=Ermetic OR source=demo-tenable-correlation) type=Finding status=Open | rex field=resources{} "cluster/(?&lt;cluster_path&gt;[^/\"]+)" | rex field=resources "cluster/(?&lt;cluster_path2&gt;[^/\"]+)" | rex field=resources{} ":cluster/(?&lt;cluster_arn&gt;[^/\"]+)" | rex field=resources ":cluster/(?&lt;cluster_arn2&gt;[^/\"]+)" | rex field=resourceNames{} "^(?&lt;cluster_name&gt;[^|]+)" | rex field=resourceNames "^(?&lt;cluster_name2&gt;[^|]+)" | rex field=description "(?i)EKS Cluster (?&lt;cluster_desc&gt;[a-z0-9][a-z0-9-]*)" | rex field=description "^(?&lt;cluster_desc2&gt;[a-z0-9][a-z0-9-]*)" | eval cluster=coalesce(cluster_path, cluster_path2, cluster_arn, cluster_arn2, cluster_name, cluster_name2, cluster_desc, cluster_desc2) | where isnotnull(cluster) | where if("$cluster$"="*", 1=1, cluster="$cluster$") | dedup id | stats count</query>
+          <earliest>$time.earliest$</earliest>
+          <latest>$time.latest$</latest>
+        </search>
+        <option name="drilldown">none</option>
+        <option name="underLabel">Tenable Cloud Security</option>
+      </single>
+    </panel>
+    <panel>
+      <title>② Runtime Events</title>
+      <single>
+        <search>
+          <query>index=cisco_security_cloud sourcetype=cisco:isovalent:* source=demo-tenable-correlation | eval cluster=coalesce(cluster, 'cluster-name') | where if("$cluster$"="*", 1=1, cluster="$cluster$") | stats count</query>
+          <earliest>$time.earliest$</earliest>
+          <latest>$time.latest$</latest>
+        </search>
+        <option name="drilldown">none</option>
+        <option name="underLabel">Isovalent telemetry</option>
+      </single>
+    </panel>
+    <panel>
+      <title>③ Correlated Workloads</title>
+      <single>
+        <search>
+          <query>index=tenable (source=Ermetic OR source=demo-tenable-correlation) type=Finding status=Open | rex field=resources{} "cluster/(?&lt;cluster_path&gt;[^/\"]+)" | rex field=resources "cluster/(?&lt;cluster_path2&gt;[^/\"]+)" | rex field=resources{} ":cluster/(?&lt;cluster_arn&gt;[^/\"]+)" | rex field=resources ":cluster/(?&lt;cluster_arn2&gt;[^/\"]+)" | rex field=resourceNames{} "^(?&lt;cluster_name&gt;[^|]+)" | rex field=resourceNames "^(?&lt;cluster_name2&gt;[^|]+)" | rex field=description "(?i)EKS Cluster (?&lt;cluster_desc&gt;[a-z0-9][a-z0-9-]*)" | rex field=description "^(?&lt;cluster_desc2&gt;[a-z0-9][a-z0-9-]*)" | rex field=description "(?i)^(?&lt;namespace_desc&gt;[^|]+)\s*\|\s*(?&lt;workload_desc&gt;[^ ]+)" | rex field=description "(?i)(?&lt;workload_img&gt;eks-pod-identity-agent|kube-proxy|coredns|aws-network-policy-agent)" | eval cluster=coalesce(cluster_path, cluster_path2, cluster_arn, cluster_arn2, cluster_name, cluster_name2, cluster_desc, cluster_desc2) | eval workload=coalesce(workload_desc, workload_img) | where isnotnull(cluster) AND isnotnull(workload) | where if("$cluster$"="*", 1=1, cluster="$cluster$") | dedup id | stats count as open_findings by cluster workload | join cluster workload [ search index=cisco_security_cloud sourcetype=cisco:isovalent:* source=demo-tenable-correlation earliest=$time.earliest$ latest=$time.latest$ | eval cluster=coalesce(cluster, 'cluster-name') | spath path=process_exec.process.pod.workload output=wl_exec | spath path=event.process_exec.process.pod.workload output=wl_alert | spath path=process_connect.process.pod.workload output=wl_conn | spath path=event.network_connect.source.workload_name output=wl_net | spath path=event.process.workload_name output=wl_proc | eval workload=coalesce(wl_exec, wl_alert, wl_conn, wl_net, wl_proc, kubernetes_workload_name) | where isnotnull(workload) AND workload!="" | where if("$cluster$"="*", 1=1, cluster="$cluster$") | stats count as isovalent_events by cluster workload ] | where open_findings&gt;0 AND isovalent_events&gt;0 | stats count</query>
+          <earliest>$time.earliest$</earliest>
+          <latest>$time.latest$</latest>
+        </search>
+        <option name="drilldown">none</option>
+        <option name="underLabel">Posture + runtime overlap</option>
+      </single>
+    </panel>
+    <panel>
+      <title>Highlight</title>
+      <single>
+        <search>
+          <query>index=tenable (source=Ermetic OR source=demo-tenable-correlation) type=Finding status=Open | rex field=resources{} "cluster/(?&lt;cluster_path&gt;[^/\"]+)" | rex field=resources "cluster/(?&lt;cluster_path2&gt;[^/\"]+)" | rex field=resources{} ":cluster/(?&lt;cluster_arn&gt;[^/\"]+)" | rex field=resources ":cluster/(?&lt;cluster_arn2&gt;[^/\"]+)" | rex field=resourceNames{} "^(?&lt;cluster_name&gt;[^|]+)" | rex field=resourceNames "^(?&lt;cluster_name2&gt;[^|]+)" | rex field=description "(?i)EKS Cluster (?&lt;cluster_desc&gt;[a-z0-9][a-z0-9-]*)" | rex field=description "^(?&lt;cluster_desc2&gt;[a-z0-9][a-z0-9-]*)" | rex field=description "(?i)^(?&lt;namespace_desc&gt;[^|]+)\s*\|\s*(?&lt;workload_desc&gt;[^ ]+)" | rex field=description "(?i)(?&lt;workload_img&gt;eks-pod-identity-agent|kube-proxy|coredns|aws-network-policy-agent)" | eval cluster=coalesce(cluster_path, cluster_path2, cluster_arn, cluster_arn2, cluster_name, cluster_name2, cluster_desc, cluster_desc2) | eval workload=coalesce(workload_desc, workload_img) | where isnotnull(cluster) AND isnotnull(workload) | where if("$cluster$"="*", 1=1, cluster="$cluster$") | dedup id | stats values(title) as findings values(severity) as severities by cluster workload | join cluster workload [ search index=cisco_security_cloud sourcetype=cisco:isovalent:* source=demo-tenable-correlation earliest=$time.earliest$ latest=$time.latest$ | eval cluster=coalesce(cluster, 'cluster-name') | spath path=process_exec.process.pod.workload output=wl_exec | spath path=event.process_exec.process.pod.workload output=wl_alert | spath path=process_connect.process.pod.workload output=wl_conn | spath path=event.network_connect.source.workload_name output=wl_net | spath path=event.process.workload_name output=wl_proc | eval workload=coalesce(wl_exec, wl_alert, wl_conn, wl_net, wl_proc, kubernetes_workload_name) | eval alert='rule.name' | where isnotnull(workload) | where if("$cluster$"="*", 1=1, cluster="$cluster$") | stats count as runtime_events values(alert) as alerts by cluster workload | where runtime_events&gt;0 ] | eval highlight=workload." — ".findings | eval risk=case(match(alerts, "Suspicious"), 1, match(alerts, "IMDS|Kubelet"), 2, match(severities, "Critical"), 3, match(severities, "High"), 4, true(), 5) | sort risk workload | head 1 | fields highlight</query>
+          <earliest>$time.earliest$</earliest>
+          <latest>$time.latest$</latest>
+        </search>
+        <option name="drilldown">none</option>
+        <option name="underLabel">Top correlated risk</option>
+      </single>
+    </panel>
+  </row>
+
+  <row>
+    <panel>
+      <title>Step 1 — Posture: Open Findings by Workload</title>
+      <table>
+        <search>
+          <query>index=tenable (source=Ermetic OR source=demo-tenable-correlation) type=Finding status=Open | rex field=resources{} "cluster/(?&lt;cluster_path&gt;[^/\"]+)" | rex field=resources "cluster/(?&lt;cluster_path2&gt;[^/\"]+)" | rex field=resources{} ":cluster/(?&lt;cluster_arn&gt;[^/\"]+)" | rex field=resources ":cluster/(?&lt;cluster_arn2&gt;[^/\"]+)" | rex field=resourceNames{} "^(?&lt;cluster_name&gt;[^|]+)" | rex field=resourceNames "^(?&lt;cluster_name2&gt;[^|]+)" | rex field=description "(?i)EKS Cluster (?&lt;cluster_desc&gt;[a-z0-9][a-z0-9-]*)" | rex field=description "^(?&lt;cluster_desc2&gt;[a-z0-9][a-z0-9-]*)" | rex field=description "(?i)^(?&lt;namespace_desc&gt;[^|]+)\s*\|\s*(?&lt;workload_desc&gt;[^ ]+)" | rex field=description "(?i)(?&lt;workload_img&gt;eks-pod-identity-agent|kube-proxy|coredns|aws-network-policy-agent)" | rex field=description "container image stored in (?&lt;container_image&gt;[^,\s]+)" | eval cluster=coalesce(cluster_path, cluster_path2, cluster_arn, cluster_arn2, cluster_name, cluster_name2, cluster_desc, cluster_desc2) | eval namespace=trim(coalesce(namespace_desc, "kube-system")) | eval workload=coalesce(workload_desc, workload_img, "(cluster-level)") | where isnotnull(cluster) | where if("$cluster$"="*", 1=1, cluster="$cluster$") | dedup id | eval severity_order=case(severity="Critical",1, severity="High",2, severity="Medium",3, severity="Low",4, true(), 5) | sort severity_order workload | table cluster workload namespace severity title container_image description link</query>
+          <earliest>$time.earliest$</earliest>
+          <latest>$time.latest$</latest>
+        </search>
+        <option name="count">20</option>
+        <option name="drilldown">row</option>
+        <drilldown>
+          <link target="_blank">$row.link$</link>
+        </drilldown>
+      </table>
+    </panel>
+  </row>
+
+  <row>
+    <panel>
+      <title>Step 2 — Runtime: Isovalent Activity by Workload</title>
+      <table>
+        <search>
+          <query>index=cisco_security_cloud sourcetype=cisco:isovalent:* source=demo-tenable-correlation | eval cluster=coalesce(cluster, 'cluster-name') | spath path=process_exec.process.pod.namespace output=ns_exec | spath path=event.process_exec.process.pod.namespace output=ns_alert | spath path=process_connect.process.pod.namespace output=ns_conn | spath path=process_exec.process.pod.workload output=wl_exec | spath path=event.process_exec.process.pod.workload output=wl_alert | spath path=process_connect.process.pod.workload output=wl_conn | spath path=rule.name output=alert_name | spath path=rule.severity output=alert_severity | spath path=process_exec.process.pod.container.image output=image | spath path=process_exec.process.binary output=binary | eval namespace=coalesce(ns_exec, ns_alert, ns_conn, kubernetes_namespace) | eval workload=coalesce(wl_exec, wl_alert, wl_conn, kubernetes_workload_name, 'process_exec.process.pod.workload', 'event.process_exec.process.pod.workload') | eval alert=coalesce(alert_name, 'rule.name', "—") | eval image=coalesce(image, "—") | eval process=coalesce(binary, "—") | where isnotnull(workload) | where if("$cluster$"="*", 1=1, cluster="$cluster$") | table _time cluster namespace workload sourcetype alert alert_severity process image host | sort workload - _time</query>
+          <earliest>$time.earliest$</earliest>
+          <latest>$time.latest$</latest>
+        </search>
+        <option name="count">25</option>
+        <option name="drilldown">row</option>
+        <drilldown>
+          <link target="_blank">/app/search/search?q=index%3Dcisco_security_cloud%20source%3Ddemo-tenable-correlation%20cluster%3D$row.cluster$%20workload%3D$row.workload$%20sourcetype%3D$row.sourcetype$&amp;earliest=$time.earliest$&amp;latest=$time.latest$</link>
+        </drilldown>
+      </table>
+    </panel>
+  </row>
+
+  <row>
+    <panel>
+      <title>Step 3 — Correlation: Vulnerable Workloads with Active Runtime</title>
+      <table>
+        <search>
+          <query>index=tenable (source=Ermetic OR source=demo-tenable-correlation) type=Finding status=Open | rex field=resources{} "cluster/(?&lt;cluster_path&gt;[^/\"]+)" | rex field=resources "cluster/(?&lt;cluster_path2&gt;[^/\"]+)" | rex field=resources{} ":cluster/(?&lt;cluster_arn&gt;[^/\"]+)" | rex field=resources ":cluster/(?&lt;cluster_arn2&gt;[^/\"]+)" | rex field=resourceNames{} "^(?&lt;cluster_name&gt;[^|]+)" | rex field=resourceNames "^(?&lt;cluster_name2&gt;[^|]+)" | rex field=description "(?i)EKS Cluster (?&lt;cluster_desc&gt;[a-z0-9][a-z0-9-]*)" | rex field=description "^(?&lt;cluster_desc2&gt;[a-z0-9][a-z0-9-]*)" | rex field=description "(?i)^(?&lt;namespace_desc&gt;[^|]+)\s*\|\s*(?&lt;workload_desc&gt;[^ ]+)" | rex field=description "(?i)(?&lt;workload_img&gt;eks-pod-identity-agent|kube-proxy|coredns|aws-network-policy-agent)" | rex field=description "container image stored in (?&lt;posture_image&gt;[^,\s]+)" | eval cluster=coalesce(cluster_path, cluster_path2, cluster_arn, cluster_arn2, cluster_name, cluster_name2, cluster_desc, cluster_desc2) | eval workload=coalesce(workload_desc, workload_img) | where isnotnull(cluster) AND isnotnull(workload) | where if("$cluster$"="*", 1=1, cluster="$cluster$") | dedup id | stats count as open_findings values(title) as findings values(severity) as severities values(posture_image) as posture_images values(description) as finding_detail values(link) as tenable_link by cluster workload | join cluster workload [ search index=cisco_security_cloud sourcetype=cisco:isovalent:* source=demo-tenable-correlation earliest=$time.earliest$ latest=$time.latest$ | eval cluster=coalesce(cluster, 'cluster-name') | spath path=process_exec.process.pod.workload output=wl_exec | spath path=event.process_exec.process.pod.workload output=wl_alert | spath path=process_connect.process.pod.workload output=wl_conn | spath path=event.network_connect.source.workload_name output=wl_net | spath path=event.process.workload_name output=wl_proc | eval workload=coalesce(wl_exec, wl_alert, wl_conn, wl_net, wl_proc, kubernetes_workload_name) | spath path=rule.name output=alert_name | spath path=process_exec.process.pod.container.image output=runtime_image | eval alert_name=coalesce(alert_name, 'rule.name') | where isnotnull(workload) | where if("$cluster$"="*", 1=1, cluster="$cluster$") | stats count as runtime_events values(sourcetype) as event_types values(alert_name) as runtime_alerts values(runtime_image) as runtime_images dc(host) as nodes by cluster workload ] | where open_findings&gt;0 AND runtime_events&gt;0 | eval severity_order=case(match(severities, "Critical"),1, match(severities, "High"),2, true(), 3) | eval alert_risk=if(match(runtime_alerts, "Suspicious|IMDS|Kubelet"), "yes", "no") | sort alert_risk severity_order - runtime_events | table cluster workload findings severities posture_images runtime_events event_types runtime_alerts runtime_images nodes finding_detail tenable_link</query>
+          <earliest>$time.earliest$</earliest>
+          <latest>$time.latest$</latest>
+        </search>
+        <option name="count">20</option>
+        <option name="drilldown">row</option>
+        <drilldown>
+          <link target="_blank">/app/search/search?q=index%3Dtenable%20OR%20index%3Dcisco_security_cloud%20cluster%3D$row.cluster$%20workload%3D$row.workload$&amp;earliest=$time.earliest$&amp;latest=$time.latest$</link>
+        </drilldown>
+      </table>
+    </panel>
+  </row>
+
+  <row>
+    <panel>
+      <title>Container Image Match — Posture vs Runtime</title>
+      <chart>
+        <search>
+          <query>index=tenable (source=Ermetic OR source=demo-tenable-correlation) type=Finding status=Open | rex field=resources{} "cluster/(?&lt;cluster_path&gt;[^/\"]+)" | rex field=resources "cluster/(?&lt;cluster_path2&gt;[^/\"]+)" | rex field=resources{} ":cluster/(?&lt;cluster_arn&gt;[^/\"]+)" | rex field=resources ":cluster/(?&lt;cluster_arn2&gt;[^/\"]+)" | rex field=resourceNames{} "^(?&lt;cluster_name&gt;[^|]+)" | rex field=resourceNames "^(?&lt;cluster_name2&gt;[^|]+)" | rex field=description "(?i)EKS Cluster (?&lt;cluster_desc&gt;[a-z0-9][a-z0-9-]*)" | rex field=description "^(?&lt;cluster_desc2&gt;[a-z0-9][a-z0-9-]*)" | rex field=description "(?i)^(?&lt;namespace_desc&gt;[^|]+)\s*\|\s*(?&lt;workload_desc&gt;[^ ]+)" | rex field=description "(?i)(?&lt;workload_img&gt;eks-pod-identity-agent|kube-proxy|coredns|aws-network-policy-agent)" | rex field=description "container image stored in (?&lt;posture_image&gt;[^,\s]+)" | eval cluster=coalesce(cluster_path, cluster_path2, cluster_arn, cluster_arn2, cluster_name, cluster_name2, cluster_desc, cluster_desc2) | eval workload=coalesce(workload_desc, workload_img) | where isnotnull(cluster) AND isnotnull(workload) AND isnotnull(posture_image) | where if("$cluster$"="*", 1=1, cluster="$cluster$") | dedup id | stats values(posture_image) as posture_image by cluster workload | join cluster workload [ search index=cisco_security_cloud sourcetype=cisco:isovalent:* source=demo-tenable-correlation earliest=$time.earliest$ latest=$time.latest$ | eval cluster=coalesce(cluster, 'cluster-name') | spath path=process_exec.process.pod.workload output=wl_exec | spath path=event.process_exec.process.pod.workload output=wl_alert | spath path=process_connect.process.pod.workload output=wl_conn | spath path=event.network_connect.source.workload_name output=wl_net | spath path=event.process.workload_name output=wl_proc | eval workload=coalesce(wl_exec, wl_alert, wl_conn, wl_net, wl_proc, kubernetes_workload_name) | spath path=process_exec.process.pod.container.image output=runtime_image | where isnotnull(workload) AND workload!="" AND isnotnull(runtime_image) | where if("$cluster$"="*", 1=1, cluster="$cluster$") | sort - _time | dedup cluster workload | table cluster workload runtime_image ] | eval posture_image=mvindex(posture_image, 0) | eval image_match=if(like(runtime_image, posture_image."%"), "ECR path matched", "no match") | stats count as count by image_match</query>
+          <earliest>$time.earliest$</earliest>
+          <latest>$time.latest$</latest>
+        </search>
+        <option name="charting.chart">pie</option>
+        <option name="charting.drilldown">none</option>
+        <option name="charting.legend.placement">right</option>
+      </chart>
+    </panel>
+    <panel>
+      <title>Runtime Event Types for Correlated Workloads</title>
+      <chart>
+        <search>
+          <query>index=cisco_security_cloud sourcetype=cisco:isovalent:* source=demo-tenable-correlation | eval cluster=coalesce(cluster, 'cluster-name') | spath path=process_exec.process.pod.workload output=wl_exec | spath path=event.process_exec.process.pod.workload output=wl_alert | spath path=process_connect.process.pod.workload output=wl_conn | spath path=event.network_connect.source.workload_name output=wl_net | spath path=event.process.workload_name output=wl_proc | eval workload=coalesce(wl_exec, wl_alert, wl_conn, wl_net, wl_proc, kubernetes_workload_name) | where isnotnull(workload) AND workload!="" | where if("$cluster$"="*", 1=1, cluster="$cluster$") | join cluster workload [ search index=tenable (source=Ermetic OR source=demo-tenable-correlation) type=Finding status=Open earliest=$time.earliest$ latest=$time.latest$ | rex field=resources{} "cluster/(?&lt;cluster_path&gt;[^/\"]+)" | rex field=resources "cluster/(?&lt;cluster_path2&gt;[^/\"]+)" | rex field=resources{} ":cluster/(?&lt;cluster_arn&gt;[^/\"]+)" | rex field=resources ":cluster/(?&lt;cluster_arn2&gt;[^/\"]+)" | rex field=resourceNames{} "^(?&lt;cluster_name&gt;[^|]+)" | rex field=resourceNames "^(?&lt;cluster_name2&gt;[^|]+)" | rex field=description "(?i)EKS Cluster (?&lt;cluster_desc&gt;[a-z0-9][a-z0-9-]*)" | rex field=description "^(?&lt;cluster_desc2&gt;[a-z0-9][a-z0-9-]*)" | rex field=description "(?i)^(?&lt;namespace_desc&gt;[^|]+)\s*\|\s*(?&lt;workload_desc&gt;[^ ]+)" | rex field=description "(?i)(?&lt;workload_img&gt;eks-pod-identity-agent|kube-proxy|coredns|aws-network-policy-agent)" | eval cluster=coalesce(cluster_path, cluster_path2, cluster_arn, cluster_arn2, cluster_name, cluster_name2, cluster_desc, cluster_desc2) | eval workload=coalesce(workload_desc, workload_img) | where isnotnull(cluster) AND isnotnull(workload) | where if("$cluster$"="*", 1=1, cluster="$cluster$") | dedup id | stats count as findings by cluster workload | where findings&gt;0 | fields cluster workload ] | stats count by sourcetype</query>
+          <earliest>$time.earliest$</earliest>
+          <latest>$time.latest$</latest>
+        </search>
+        <option name="charting.chart">bar</option>
+        <option name="charting.drilldown">all</option>
+        <option name="charting.legend.placement">none</option>
+      </chart>
+    </panel>
+  </row>
+</dashboard>

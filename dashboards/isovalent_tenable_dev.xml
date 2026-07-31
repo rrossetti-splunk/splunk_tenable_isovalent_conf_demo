@@ -1,0 +1,198 @@
+<dashboard version="1.1" theme="light">
+  <label>Isovalent + Tenable Dev</label>
+  <description>Development dashboard for seeded Isovalent runtime events and Tenable Cloud Security findings. Demo HEC events use source=demo-tenable-correlation on both indexes; native Tenable integration uses source=Ermetic.</description>
+
+  <fieldset submitButton="false" autoRun="true">
+    <input type="time" token="time">
+      <label>Time Range</label>
+      <default>
+        <earliest>0</earliest>
+        <latest>now</latest>
+      </default>
+    </input>
+    <input type="dropdown" token="cluster">
+      <label>Cluster</label>
+      <choice value="*">All clusters</choice>
+      <choice value="alex-aws-cluster">alex-aws-cluster</choice>
+      <choice value="TenableUse2Eks1">TenableUse2Eks1</choice>
+      <choice value="delete-test-proxy-config">delete-test-proxy-config</choice>
+      <default>*</default>
+    </input>
+  </fieldset>
+
+  <row>
+    <panel>
+      <title>Isovalent Demo Events</title>
+      <single>
+        <search>
+          <query>index=cisco_security_cloud sourcetype=cisco:isovalent:* source=demo-tenable-correlation | eval cluster=coalesce(cluster, 'cluster-name') | where if("$cluster$"="*", 1=1, cluster="$cluster$") | stats count</query>
+          <earliest>$time.earliest$</earliest>
+          <latest>$time.latest$</latest>
+        </search>
+        <option name="drilldown">none</option>
+        <option name="underLabel">HEC-seeded runtime events</option>
+      </single>
+    </panel>
+    <panel>
+      <title>Tenable Cloud Findings</title>
+      <single>
+        <search>
+          <query>index=tenable (source=Ermetic OR source=demo-tenable-correlation) type=Finding | rex field=resources{} "cluster/(?&lt;cluster&gt;[^/\"]+)" | where if("$cluster$"="*", 1=1, cluster="$cluster$") | dedup id | stats count</query>
+          <earliest>$time.earliest$</earliest>
+          <latest>$time.latest$</latest>
+        </search>
+        <option name="drilldown">none</option>
+        <option name="underLabel">Native + demo HEC (dedup id)</option>
+      </single>
+    </panel>
+    <panel>
+      <title>Demo HEC Findings</title>
+      <single>
+        <search>
+          <query>index=tenable source=demo-tenable-correlation type=Finding status=Open | rex field=resources{} "cluster/(?&lt;cluster&gt;[^/\"]+)" | where if("$cluster$"="*", 1=1, cluster="$cluster$") | dedup id | stats count</query>
+          <earliest>$time.earliest$</earliest>
+          <latest>$time.latest$</latest>
+        </search>
+        <option name="drilldown">none</option>
+        <option name="underLabel">Script/HEC posture findings</option>
+      </single>
+    </panel>
+    <panel>
+      <title>Correlated Clusters</title>
+      <single>
+        <search>
+          <query>index=cisco_security_cloud sourcetype=cisco:isovalent:* source=demo-tenable-correlation | eval cluster=coalesce(cluster, 'cluster-name') | where if("$cluster$"="*", 1=1, cluster="$cluster$") | stats count as isovalent_events by cluster | join cluster [ search index=tenable (source=Ermetic OR source=demo-tenable-correlation) type=Finding status=Open | rex field=resources{} "cluster/(?&lt;cluster&gt;[^/\"]+)" | where if("$cluster$"="*", 1=1, cluster="$cluster$") | dedup id | stats count as tenable_findings by cluster ] | where isovalent_events&gt;0 AND tenable_findings&gt;0 | stats count</query>
+          <earliest>$time.earliest$</earliest>
+          <latest>$time.latest$</latest>
+        </search>
+        <option name="drilldown">none</option>
+        <option name="underLabel">Clusters in both datasets</option>
+      </single>
+    </panel>
+  </row>
+
+  <row>
+    <panel>
+      <title>Isovalent Events Over Time</title>
+      <chart>
+        <search>
+          <query>index=cisco_security_cloud sourcetype=cisco:isovalent:* source=demo-tenable-correlation | eval cluster=coalesce(cluster, 'cluster-name') | where if("$cluster$"="*", 1=1, cluster="$cluster$") | timechart span=1h count by sourcetype</query>
+          <earliest>$time.earliest$</earliest>
+          <latest>$time.latest$</latest>
+        </search>
+        <option name="charting.chart">column</option>
+        <option name="charting.drilldown">all</option>
+        <option name="charting.legend.placement">bottom</option>
+      </chart>
+    </panel>
+    <panel>
+      <title>Tenable Findings Over Time</title>
+      <chart>
+        <search>
+          <query>index=tenable (source=Ermetic OR source=demo-tenable-correlation) type=Finding | rex field=resources{} "cluster/(?&lt;cluster&gt;[^/\"]+)" | where if("$cluster$"="*", 1=1, cluster="$cluster$") | dedup id | timechart span=1h count by severity</query>
+          <earliest>$time.earliest$</earliest>
+          <latest>$time.latest$</latest>
+        </search>
+        <option name="charting.chart">column</option>
+        <option name="charting.drilldown">all</option>
+        <option name="charting.legend.placement">bottom</option>
+      </chart>
+    </panel>
+  </row>
+
+  <row>
+    <panel>
+      <title>Isovalent Events by Cluster</title>
+      <chart>
+        <search>
+          <query>index=cisco_security_cloud sourcetype=cisco:isovalent:* source=demo-tenable-correlation | eval cluster=coalesce(cluster, 'cluster-name') | where if("$cluster$"="*", 1=1, cluster="$cluster$") | stats count by cluster, sourcetype</query>
+          <earliest>$time.earliest$</earliest>
+          <latest>$time.latest$</latest>
+        </search>
+        <option name="charting.chart">bar</option>
+        <option name="charting.drilldown">all</option>
+      </chart>
+    </panel>
+    <panel>
+      <title>Tenable Open Findings by Cluster</title>
+      <chart>
+        <search>
+          <query>index=tenable (source=Ermetic OR source=demo-tenable-correlation) type=Finding status=Open | rex field=resources{} "cluster/(?&lt;cluster&gt;[^/\"]+)" | where if("$cluster$"="*", 1=1, cluster="$cluster$") | dedup id | stats count by cluster, severity</query>
+          <earliest>$time.earliest$</earliest>
+          <latest>$time.latest$</latest>
+        </search>
+        <option name="charting.chart">bar</option>
+        <option name="charting.drilldown">all</option>
+      </chart>
+    </panel>
+  </row>
+
+  <row>
+    <panel>
+      <title>Cluster Correlation Summary</title>
+      <table>
+        <search>
+          <query>index=cisco_security_cloud sourcetype=cisco:isovalent:* source=demo-tenable-correlation | eval cluster=coalesce(cluster, 'cluster-name') | where if("$cluster$"="*", 1=1, cluster="$cluster$") | stats count as isovalent_events, values(sourcetype) as isovalent_sourcetypes by cluster | join cluster type=outer [ search index=tenable (source=Ermetic OR source=demo-tenable-correlation) type=Finding status=Open | rex field=resources{} "cluster/(?&lt;cluster&gt;[^/\"]+)" | where if("$cluster$"="*", 1=1, cluster="$cluster$") | dedup id | stats count as tenable_open_findings, values(title) as tenable_titles, values(severity) as tenable_severities, values(source) as tenable_sources by cluster ] | eval correlated=if(isovalent_events&gt;0 AND tenable_open_findings&gt;0, "yes", "no") | sort - isovalent_events - tenable_open_findings | table cluster, isovalent_events, isovalent_sourcetypes, tenable_open_findings, tenable_sources, tenable_severities, correlated, tenable_titles</query>
+          <earliest>$time.earliest$</earliest>
+          <latest>$time.latest$</latest>
+        </search>
+        <option name="count">20</option>
+        <option name="drilldown">row</option>
+        <drilldown>
+          <link target="_blank">/app/search/search?q=index%3Dcisco_security_cloud%20source%3Ddemo-tenable-correlation%20cluster%3D$row.cluster$&amp;earliest=$time.earliest$&amp;latest=$time.latest$</link>
+        </drilldown>
+      </table>
+    </panel>
+  </row>
+
+  <row>
+    <panel>
+      <title>Recent Isovalent Demo Events</title>
+      <table>
+        <search>
+          <query>index=cisco_security_cloud sourcetype=cisco:isovalent:* source=demo-tenable-correlation | eval cluster=coalesce(cluster, 'cluster-name') | spath path=event.process_exec.process.pod.namespace output=ns_alert | spath path=process_exec.process.pod.namespace output=ns_exec | spath path=process_connect.process.pod.namespace output=ns_conn | spath path=event.process_exec.process.pod.workload output=wl_alert | spath path=process_exec.process.pod.workload output=wl_exec | spath path=process_connect.process.pod.workload output=wl_conn | spath path=rule.name output=alert_name | spath path=process_exec.process.pod.container.image output=image | eval namespace=coalesce(ns_alert, ns_exec, ns_conn, kubernetes_namespace) | eval workload=coalesce(wl_alert, wl_exec, wl_conn, kubernetes_workload_name) | eval alert=coalesce(alert_name, "n/a") | eval image=coalesce(image, "n/a") | where if("$cluster$"="*", 1=1, cluster="$cluster$") | table _time, sourcetype, cluster, namespace, workload, host, alert, image | sort - _time</query>
+          <earliest>$time.earliest$</earliest>
+          <latest>$time.latest$</latest>
+        </search>
+        <option name="count">25</option>
+        <option name="drilldown">row</option>
+        <drilldown>
+          <link target="_blank">/app/search/search?q=index%3Dcisco_security_cloud%20source%3Ddemo-tenable-correlation%20cluster%3D$row.cluster$%20sourcetype%3D$row.sourcetype$&amp;earliest=$time.earliest$&amp;latest=$time.latest$</link>
+        </drilldown>
+      </table>
+    </panel>
+    <panel>
+      <title>Recent Tenable Open Findings</title>
+      <table>
+        <search>
+          <query>index=tenable (source=Ermetic OR source=demo-tenable-correlation) type=Finding status=Open | rex field=resources{} "cluster/(?&lt;cluster&gt;[^/\"]+)" | rex field=resources{} "cluster/[^/]+/(?&lt;namespace&gt;[^/]+)/(?&lt;workload_kind&gt;[^/]+)/(?&lt;workload_name&gt;[^\"]+)" | rex field=resourceNames{} "^(?&lt;ns_from_name&gt;[^|]+)\s*\|\s*(?&lt;wl_from_name&gt;[^|]+)" | eval namespace=coalesce(namespace, ns_from_name) | eval workload_name=coalesce(workload_name, wl_from_name) | where if("$cluster$"="*", 1=1, cluster="$cluster$") | dedup id | table _time, source, severity, title, cluster, namespace, workload_kind, workload_name, accountName, cloudProvider, description, link | sort - _time</query>
+          <earliest>$time.earliest$</earliest>
+          <latest>$time.latest$</latest>
+        </search>
+        <option name="count">25</option>
+        <option name="drilldown">row</option>
+        <drilldown>
+          <link target="_blank">$row.link$</link>
+        </drilldown>
+      </table>
+    </panel>
+  </row>
+
+  <row>
+    <panel>
+      <title>Tenable + Isovalent Correlation (Posture + Runtime)</title>
+      <table>
+        <search>
+          <query>index=tenable (source=Ermetic OR source=demo-tenable-correlation) type=Finding status=Open | rex field=resources{} "cluster/(?&lt;cluster_path&gt;[^/\"]+)" | rex field=resources{} ":cluster/(?&lt;cluster_arn&gt;[^/\"]+)" | rex field=resources{} "cluster/[^/]+/(?&lt;namespace_path&gt;[^/]+)/(?&lt;workload_kind&gt;[^/]+)/(?&lt;workload_path&gt;[^\"]+)" | rex field=resourceNames{} "^(?&lt;cluster_name&gt;[^|]+)" | rex field=resourceNames{} "^\s*(?&lt;namespace_name&gt;[^|]+)\s*\|\s*(?&lt;workload_name&gt;[^|]+)" | rex field=description "(?i)EKS Cluster (?&lt;cluster_desc&gt;[a-z0-9][a-z0-9-]*)" | rex field=description "(?i)^(?&lt;namespace_desc&gt;[^|]+)\s*\|\s*(?&lt;workload_desc&gt;[^ ]+)" | rex field=description "(?i)(?&lt;workload_img&gt;eks-pod-identity-agent|kube-proxy|coredns|aws-network-policy-agent)" | eval cluster=coalesce(cluster_path, cluster_arn, cluster_name, cluster_desc) | eval namespace=trim(coalesce(namespace_path, namespace_name, namespace_desc, "kube-system")) | eval workload=coalesce(workload_path, workload_name, workload_desc, workload_img, "(cluster-level)") | where isnotnull(cluster) | where if("$cluster$"="*", 1=1, cluster="$cluster$") | dedup id | stats count as open_findings values(title) as findings values(severity) as severities values(description) as descriptions values(cloudProvider) as cloud_provider values(accountName) as account values(namespace) as namespaces sum(eval(if(source="Ermetic",1,0))) as native_cloud_security_findings sum(eval(if(source="demo-tenable-correlation",1,0))) as demo_hec_findings values(link) as tenable_links by cluster workload | join cluster workload type=outer [ search index=cisco_security_cloud sourcetype=cisco:isovalent:* earliest=$time.earliest$ latest=$time.latest$ | eval cluster=coalesce(cluster, 'cluster-name') | spath path=process_exec.process.pod.namespace output=ns_exec | spath path=event.process_exec.process.pod.namespace output=ns_alert | spath path=process_exec.process.pod.workload output=wl_exec | spath path=event.process_exec.process.pod.workload output=wl_alert | spath path=process_exec.process.pod.container.image output=container_image | spath path=rule.name output=alert_name | eval workload=coalesce(wl_exec, wl_alert, kubernetes_workload_name) | where isnotnull(workload) | where if("$cluster$"="*", 1=1, cluster="$cluster$") | stats count as isovalent_events values(sourcetype) as isovalent_event_types values(alert_name) as isovalent_alerts values(container_image) as runtime_images values(coalesce(ns_exec, ns_alert, kubernetes_namespace)) as isovalent_namespaces dc(host) as nodes_observed by cluster workload ] | eval open_findings=coalesce(open_findings, 0) | eval isovalent_events=coalesce(isovalent_events, 0) | eval correlated=case(open_findings&gt;0 AND isovalent_events&gt;0, "posture+runtime", open_findings&gt;0, "posture-only", isovalent_events&gt;0, "runtime-only", true(), "unknown") | sort - open_findings - isovalent_events | table cluster workload correlated open_findings findings severities namespaces native_cloud_security_findings demo_hec_findings cloud_provider account isovalent_events isovalent_event_types isovalent_alerts runtime_images isovalent_namespaces nodes_observed descriptions tenable_links</query>
+          <earliest>$time.earliest$</earliest>
+          <latest>$time.latest$</latest>
+        </search>
+        <option name="count">50</option>
+        <option name="drilldown">row</option>
+        <drilldown>
+          <link target="_blank">/app/search/search?q=index%3Dtenable%20OR%20index%3Dcisco_security_cloud%20cluster%3D$row.cluster$%20workload%3D$row.workload$&amp;earliest=$time.earliest$&amp;latest=$time.latest$</link>
+        </drilldown>
+      </table>
+    </panel>
+  </row>
+</dashboard>
